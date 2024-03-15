@@ -3,8 +3,10 @@ const supertest = require('supertest')
 const helper = require('./test_helper')
 const app = require('../app')
 const api = supertest(app)
+const bcrypt = require('bcrypt')
 
 const Blog = require('../models/blog')
+const User = require('../models/user')
 
 beforeEach(async () => {
   await Blog.deleteMany({})
@@ -13,6 +15,13 @@ beforeEach(async () => {
     let blogObject = new Blog(blog)
     await blogObject.save()
   }
+
+  await User.deleteMany({})
+
+  const passwordHash = await bcrypt.hash('sekret',10)
+  const user = new User({ username: 'root', passwordHash })
+
+  await user.save()
 }, 20000)
 
 
@@ -33,7 +42,12 @@ test('Unique id test', async () => {
   }
 })
 
+
 test('test if the POST works right', async () => {
+
+  const response  = await api.post('/api/login')
+    .send({ username: 'root', password:'sekret' })
+  const token = response.body.token
   const newBlog = {
     title: 'Check if this is working',
     author: 'Josue',
@@ -43,6 +57,7 @@ test('test if the POST works right', async () => {
 
   await api
     .post('/api/blogs')
+    .set('Authorization',`Bearer ${token}`)
     .send(newBlog)
     .expect(201)
     .expect('Content-Type',/application\/json/)
@@ -53,6 +68,9 @@ test('test if the POST works right', async () => {
 },10000)
 
 test('test if the value of likes is zero whene there are no like', async () => {
+  const response  = await api.post('/api/login')
+    .send({ username: 'root', password:'sekret' })
+  const token = response.body.token
   const newBlog = {
     title: 'the likes are functioning asexpected',
     author: 'Mixalis',
@@ -61,6 +79,7 @@ test('test if the value of likes is zero whene there are no like', async () => {
 
   await api
     .post('/api/blogs')
+    .set('Authorization',`Bearer ${token}`)
     .send(newBlog)
     .expect(201)
     .expect('Content-Type',/application\/json/)
@@ -73,6 +92,10 @@ test('test if the value of likes is zero whene there are no like', async () => {
 
 describe('test bad request', () => {
   test('without title', async () => {
+    const response  = await api.post('/api/login')
+      .send({ username: 'root', password:'sekret' })
+    const token = response.body.token
+
     const newBlog = {
       author: 'Mixalis',
       url: 'https://checking.com/',
@@ -80,10 +103,14 @@ describe('test bad request', () => {
 
     await api
       .post('/api/blogs')
+      .set('Authorization',`Bearer ${token}`)
       .send(newBlog)
       .expect(400)
   }),
   test('without url', async () => {
+    const response  = await api.post('/api/login')
+      .send({ username: 'root', password:'sekret' })
+    const token = response.body.token
     const newBlog = {
       title: 'the likes are functioning asexpected',
       author: 'Mixalis',
@@ -91,8 +118,68 @@ describe('test bad request', () => {
 
     await api
       .post('/api/blogs')
+      .set('Authorization',`Bearer ${token}`)
       .send(newBlog)
       .expect(400)
+  })
+})
+
+describe('Delete tests', () => {
+  test('delete with a right id', async () => {
+
+    const response  = await api.post('/api/login')
+      .send({ username: 'root', password:'sekret' })
+    const token = response.body.token
+
+
+    const newBlog = {
+      title: 'Check if this is working',
+      author: 'Josue',
+      url: 'https://checking.com/',
+      likes: 7,
+    }
+
+    await api
+      .post('/api/blogs')
+      .set('Authorization',`Bearer ${token}`)
+      .send(newBlog)
+
+    const blogs = await helper.blogsInDb()
+
+    const blogToDelete = blogs[blogs.length-1]
+
+    await api
+      .delete(`/api/blogs/${blogToDelete.id}`)
+      .set('Authorization',`Bearer ${token}`)
+      .expect(204)
+
+    const newBlogs = await helper.blogsInDb()
+
+    expect(newBlogs).toHaveLength(helper.initialBlogs.length)
+
+    const blogsTitles = newBlogs.map(r => r.title)
+    expect(blogsTitles).not.toContain(blogToDelete.title)
+  })
+})
+
+describe('Update tests', () => {
+  test('update with right id', async () => {
+    const blogs = await helper.blogsInDb()
+
+    const blogToUpdate = blogs[0]
+
+    const newBlog = {
+      likes: 15,
+    }
+
+    await api
+      .put(`/api/blogs/${blogToUpdate.id}`)
+      .send(newBlog)
+      .expect(200)
+
+    const newBlogs = await helper.blogsInDb()
+
+    expect(newBlogs[0].likes).toEqual(newBlog.likes)
   })
 })
 
